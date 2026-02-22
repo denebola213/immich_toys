@@ -10,8 +10,9 @@ const IMMICH_API_KEY = process.env.IMMICH_API_KEY; // ImmichのAPIキー
 
 // コマンドライン引数からTARGET_FOLDERを取得
 const TARGET_FOLDER = process.argv[2];
+const LOG_PATH = process.argv[3];
 if (!TARGET_FOLDER) {
-    console.error('Usage: node index.js <TARGET_FOLDER>');
+    console.error('Usage: node index.js <TARGET_FOLDER> [LOG_PATH]');
     process.exit(1);
 }
 
@@ -27,18 +28,44 @@ const IMAGE_EXTENSIONS = [
     '.mp4', '.mov', '.avi', '.mkv', '.webm', '.wmv', '.flv', '.m4v', '.3gp', '.mts', '.ts', '.m2ts', '.mpeg', '.mpg'
 ];
 
+function loadUploadedFilePaths(logPath) {
+    if (!fs.existsSync(logPath)) {
+        console.error(`Log file not found: ${logPath}`);
+        process.exit(1);
+    }
+
+    const lines = fs.readFileSync(logPath, 'utf8').split(/\r?\n/);
+    const uploaded = new Set();
+    lines.forEach(line => {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('Uploaded: ')) {
+            return;
+        }
+        const rest = trimmed.substring('Uploaded: '.length);
+        const [filePath] = rest.split(' -> ');
+        if (filePath) {
+            uploaded.add(path.resolve(filePath.trim()));
+        }
+    });
+    return uploaded;
+}
+
 // フォルダ以下の全画像ファイルを再帰的に取得
-function getAllImageFiles(dir) {
+function getAllImageFiles(dir, uploadedFiles = new Set()) {
     let results = [];
     const list = fs.readdirSync(dir);
     list.forEach(file => {
-        const filePath = path.join(dir, file);
+        const filePath = path.resolve(path.join(dir, file));
         const stat = fs.statSync(filePath);
         if (stat && stat.isDirectory()) {
-            results = results.concat(getAllImageFiles(filePath));
+            results = results.concat(getAllImageFiles(filePath, uploadedFiles));
         } else {
             if (IMAGE_EXTENSIONS.includes(path.extname(file).toLowerCase())) {
-                results.push(filePath);
+                if (uploadedFiles.has(filePath)) {
+                    console.log(`Skipping already uploaded file: ${filePath}`);
+                } else {
+                    results.push(filePath);
+                }
             }
         }
     });
@@ -72,8 +99,10 @@ async function uploadImage(filePath, msg) {
 }
 
 // メイン処理
+// メイン処理
 (async () => {
-    const files = getAllImageFiles(TARGET_FOLDER);
+    const uploadedFiles = LOG_PATH ? loadUploadedFilePaths(LOG_PATH) : new Set();
+    const files = getAllImageFiles(TARGET_FOLDER, uploadedFiles);
     let count = 0;
     console.log(`Found ${files.length} image(s).`);
     for (const file of files) {
