@@ -38,11 +38,16 @@ function loadUploadedFilePaths(logPath) {
     const uploaded = new Set();
     lines.forEach(line => {
         const trimmed = line.trim();
-        if (!trimmed.startsWith('Uploaded: ')) {
+        let filePath = '';
+        if (trimmed.startsWith('Uploaded: ')) {
+            const rest = trimmed.substring('Uploaded: '.length);
+            [filePath] = rest.split(' -> ');
+        } else if (trimmed.startsWith('Skipping already uploaded file: ')) {
+            filePath = trimmed.substring('Skipping already uploaded file: '.length);
+        } else {
             return;
         }
-        const rest = trimmed.substring('Uploaded: '.length);
-        const [filePath] = rest.split(' -> ');
+
         if (filePath) {
             uploaded.add(path.resolve(filePath.trim()));
         }
@@ -98,7 +103,6 @@ async function uploadImage(filePath, msg) {
     }
 }
 
-// メイン処理
 // メイン処理
 (async () => {
     const uploadedFiles = LOG_PATH ? loadUploadedFilePaths(LOG_PATH) : new Set();
