@@ -145,3 +145,7 @@ images/
 
 # End of https://www.toptal.com/developers/gitignore/api/node
 
+# database
+*.db
+*.sqlite
+*.sqlite3
