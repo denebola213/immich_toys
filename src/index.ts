@@ -48,6 +48,30 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+function renderProgress(label: string, current: number, total: number) {
+  if (total <= 0) {
+    return;
+  }
+
+  const ratio = Math.min(1, Math.max(0, current / total));
+  const percent = (ratio * 100).toFixed(1);
+
+  if (process.stdout.isTTY) {
+    const width = 30;
+    const filled = Math.round(ratio * width);
+    const bar = `${'='.repeat(filled)}${'-'.repeat(Math.max(0, width - filled))}`;
+    process.stdout.write(`\r${label} [${bar}] ${percent}% (${current}/${total})`);
+    if (current >= total) {
+      process.stdout.write('\n');
+    }
+    return;
+  }
+
+  if (current === 1 || current === total || current % 100 === 0) {
+    console.log(`${label}: ${current}/${total} (${percent}%)`);
+  }
+}
+
 function isMediaFile(filePath: string): boolean {
   const lower = filePath.toLowerCase();
   return IMAGE_EXTENSIONS.some(ext => lower.endsWith(ext));
@@ -240,9 +264,7 @@ async function runUpdate(targetFolder: string, dbPath: string) {
       } else {
         skipped += 1;
       }
-      if (index % 100 === 0 || index === files.length) {
-        console.log(`Indexed ${index}/${files.length} files.`);
-      }
+      renderProgress('update', index, files.length);
     }
   } finally {
     db.close();
@@ -284,6 +306,7 @@ async function runPost(dbPath: string) {
         const message = 'File not found';
         console.error(`Failed: ${row.path} -> ${message}  : ${count}/${rows.length}`);
         updateFailStmt.run(null, message, nowIso(), row.id);
+        renderProgress('post', count, rows.length);
         continue;
       }
 
@@ -293,6 +316,7 @@ async function runPost(dbPath: string) {
       } else {
         updateFailStmt.run(result.statusCode, result.errorMessage ?? 'unknown error', nowIso(), row.id);
       }
+      renderProgress('post', count, rows.length);
     }
   } finally {
     db.close();
@@ -321,11 +345,14 @@ async function runImportLog(logPath: string, dbPath: string) {
   const maxMissingLog = 20;
 
   try {
+    let processed = 0;
     for (const entry of entries) {
+      processed += 1;
       const timestamp = nowIso();
       const updateResult = markUploadedStmt.run(entry.statusCode, timestamp, timestamp, entry.path);
       if (updateResult.changes > 0) {
         marked += 1;
+        renderProgress('import-log', processed, entries.length);
         continue;
       }
 
@@ -336,6 +363,7 @@ async function runImportLog(logPath: string, dbPath: string) {
         } else if (missing === maxMissingLog + 1) {
           console.error(`Skip import logs are suppressed after ${maxMissingLog} missing files.`);
         }
+        renderProgress('import-log', processed, entries.length);
         continue;
       }
 
@@ -346,6 +374,7 @@ async function runImportLog(logPath: string, dbPath: string) {
       if (insertResult.changes > 0) {
         inserted += 1;
       }
+      renderProgress('import-log', processed, entries.length);
     }
   } finally {
     db.close();
