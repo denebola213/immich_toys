@@ -32,10 +32,16 @@ type ImageRow = {
   size: number;
 };
 
+type CompletedLogEntry = {
+  path: string;
+  statusCode: number | null;
+};
+
 function printUsage() {
   console.error('Usage:');
   console.error('  yarn start update <TARGET_FOLDER> [DB_PATH]');
   console.error('  yarn start post [DB_PATH]');
+  console.error('  yarn start import-log <LOG_PATH> [DB_PATH]');
 }
 
 function nowIso(): string {
@@ -106,6 +112,49 @@ async function hashFile(filePath: string, api: Awaited<ReturnType<typeof xxhash>
   });
 
   return hasher.digest().toString(16).padStart(16, '0');
+}
+
+function parseCompletedEntriesFromLog(logPath: string): CompletedLogEntry[] {
+  if (!fs.existsSync(logPath) || !fs.statSync(logPath).isFile()) {
+    throw new Error(`Log file is not found: ${logPath}`);
+  }
+
+  const lines = fs.readFileSync(logPath, 'utf8').split(/\r?\n/);
+  const dedup = new Map<string, number | null>();
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (line.startsWith('Uploaded: ')) {
+      const rest = line.substring('Uploaded: '.length);
+      const [filePathPart, afterArrow] = rest.split(' -> ');
+      if (!filePathPart) {
+        continue;
+      }
+
+      let statusCode: number | null = null;
+      if (afterArrow) {
+        const match = afterArrow.match(/^(\d{3})\b/);
+        if (match) {
+          statusCode = Number.parseInt(match[1], 10);
+        }
+      }
+
+      dedup.set(path.resolve(filePathPart.trim()), statusCode);
+      continue;
+    }
+
+    if (line.startsWith('Skipping already uploaded file: ')) {
+      const filePath = line.substring('Skipping already uploaded file: '.length).trim();
+      if (filePath.length > 0) {
+        dedup.set(path.resolve(filePath), dedup.get(path.resolve(filePath)) ?? null);
+      }
+    }
+  }
+
+  return Array.from(dedup.entries()).map(([entryPath, statusCode]) => ({
+    path: entryPath,
+    statusCode,
+  }));
 }
 
 async function uploadImage(filePath: string, hash: string, size: number, msg: string): Promise<UploadResult> {
@@ -250,6 +299,61 @@ async function runPost(dbPath: string) {
   }
 }
 
+async function runImportLog(logPath: string, dbPath: string) {
+  const db = initDb(dbPath);
+  const entries = parseCompletedEntriesFromLog(logPath);
+  const xxhashApi = await xxhash();
+
+  const markUploadedStmt = db.prepare(`
+    UPDATE images
+    SET status = 'uploaded', status_code = COALESCE(?, status_code), uploaded_at = ?, last_error = NULL, updated_at = ?
+    WHERE path = ?
+  `);
+
+  const insertUploadedStmt = db.prepare(`
+    INSERT OR IGNORE INTO images(path, hash, size, status, status_code, uploaded_at, updated_at)
+    VALUES (?, ?, ?, 'uploaded', ?, ?, ?)
+  `);
+
+  let marked = 0;
+  let inserted = 0;
+  let missing = 0;
+  const maxMissingLog = 20;
+
+  try {
+    for (const entry of entries) {
+      const timestamp = nowIso();
+      const updateResult = markUploadedStmt.run(entry.statusCode, timestamp, timestamp, entry.path);
+      if (updateResult.changes > 0) {
+        marked += 1;
+        continue;
+      }
+
+      if (!fs.existsSync(entry.path)) {
+        missing += 1;
+        if (missing <= maxMissingLog) {
+          console.error(`Skip import (file not found): ${entry.path}`);
+        } else if (missing === maxMissingLog + 1) {
+          console.error(`Skip import logs are suppressed after ${maxMissingLog} missing files.`);
+        }
+        continue;
+      }
+
+      const stat = fs.statSync(entry.path);
+      const size = stat.size;
+      const hash = await hashFile(entry.path, xxhashApi);
+      const insertResult = insertUploadedStmt.run(entry.path, hash, size, entry.statusCode, timestamp, timestamp);
+      if (insertResult.changes > 0) {
+        inserted += 1;
+      }
+    }
+  } finally {
+    db.close();
+  }
+
+  console.log(`Import-log completed. parsed=${entries.length}, marked=${marked}, inserted=${inserted}, missing=${missing}, db=${dbPath}`);
+}
+
 async function main() {
   const command = process.argv[2];
 
@@ -267,6 +371,17 @@ async function main() {
   if (command === 'post') {
     const dbPath = path.resolve(process.argv[3] ?? DEFAULT_DB_PATH);
     await runPost(dbPath);
+    return;
+  }
+
+  if (command === 'import-log') {
+    const logPath = process.argv[3];
+    const dbPath = path.resolve(process.argv[4] ?? DEFAULT_DB_PATH);
+    if (!logPath) {
+      printUsage();
+      process.exit(1);
+    }
+    await runImportLog(path.resolve(logPath), dbPath);
     return;
   }
 

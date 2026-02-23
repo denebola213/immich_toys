@@ -1,0 +1,78 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "immich_toys: update",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "node",
+      "program": "${workspaceFolder}/src/index.ts",
+      "args": [
+        "update",
+        "${input:targetFolder}",
+        "${input:dbPath}"
+      ],
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal",
+      "skipFiles": [
+        "<node_internals>/**"
+      ]
+    },
+    {
+      "name": "immich_toys: post",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "node",
+      "program": "${workspaceFolder}/src/index.ts",
+      "args": [
+        "post",
+        "${input:dbPath}"
+      ],
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal",
+      "skipFiles": [
+        "<node_internals>/**"
+      ]
+    },
+    {
+      "name": "immich_toys: import-log",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "node",
+      "program": "${workspaceFolder}/src/index.ts",
+      "args": [
+        "import-log",
+        "${input:logPath}",
+        "${input:dbPath}"
+      ],
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal",
+      "skipFiles": [
+        "<node_internals>/**"
+      ]
+    }
+  ],
+  "inputs": [
+    {
+      "id": "targetFolder",
+      "type": "promptString",
+      "description": "update対象フォルダ",
+      "default": "${workspaceFolder}/images"
+    },
+    {
+      "id": "dbPath",
+      "type": "promptString",
+      "description": "SQLite DBパス",
+      "default": "${workspaceFolder}/immich_toys.db"
+    },
+    {
+      "id": "logPath",
+      "type": "promptString",
+      "description": "移行元ログファイルパス",
+      "default": "${workspaceFolder}/nohup.out"
+    }
+  ]
+}

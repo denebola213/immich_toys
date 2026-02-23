@@ -12,6 +12,10 @@ TypeScript で実装されており、`node` で `.ts` を直接実行します�
   - 成功時: `status=uploaded`、HTTP ステータス、アップロード時刻を記録
   - 失敗時: `status=failed`、エラー内容を記録
   - `uploaded` のファイルは再送しません
+- `import-log`: 旧バージョンのログから、アップロード完了状態を DB に取り込み
+  - `Uploaded:` 行（および `Skipping already uploaded file:` 行）を解析
+  - DB に既存の `path` は `status=uploaded` に更新
+  - DB に未登録の `path` は、ファイルが存在する場合に `hash + size` を計算して `uploaded` として登録
 
 ## 前提
 
@@ -62,6 +66,20 @@ yarn start post [DB_PATH]
 
 ```bash
 yarn start post ./immich_toys.db
+```
+
+- `DB_PATH` 省略時は `./immich_toys.db`
+
+### 3) 旧ログからアップロード済みを移行
+
+```bash
+yarn start import-log <LOG_PATH> [DB_PATH]
+```
+
+例:
+
+```bash
+yarn start import-log ./nohup.out ./immich_toys.db
 ```
 
 - `DB_PATH` 省略時は `./immich_toys.db`
