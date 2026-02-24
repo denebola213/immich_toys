@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { DEFAULT_DB_PATH } from '../config.js';
+import { POST_MAX_RETRY_COUNT } from '../constants.js';
 import { initDb } from '../db.js';
 import { isVideoFile } from '../media.js';
 import { PostArgs, ImageRow } from '../types.js';
@@ -12,8 +13,11 @@ export function parsePostArgs(args: string[]): PostArgs {
   let dbPathArg: string | null = null;
   let excludeVideos = false;
   let quietSuccess = false;
+  let retryCount = POST_MAX_RETRY_COUNT;
 
-  for (const arg of args) {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+
     if (arg === '--exclude-videos') {
       excludeVideos = true;
       continue;
@@ -21,6 +25,30 @@ export function parsePostArgs(args: string[]): PostArgs {
 
     if (arg === '--quiet-success') {
       quietSuccess = true;
+      continue;
+    }
+
+    if (arg === '--retry-count') {
+      const value = args[index + 1];
+      if (!value) {
+        throw new Error('--retry-count requires a number.');
+      }
+      const parsed = Number.parseInt(value, 10);
+      if (!Number.isInteger(parsed) || parsed < 0) {
+        throw new Error(`Invalid --retry-count value: ${value}`);
+      }
+      retryCount = parsed;
+      index += 1;
+      continue;
+    }
+
+    if (arg.startsWith('--retry-count=')) {
+      const value = arg.slice('--retry-count='.length);
+      const parsed = Number.parseInt(value, 10);
+      if (!Number.isInteger(parsed) || parsed < 0) {
+        throw new Error(`Invalid --retry-count value: ${value}`);
+      }
+      retryCount = parsed;
       continue;
     }
 
@@ -38,17 +66,18 @@ export function parsePostArgs(args: string[]): PostArgs {
     dbPath: path.resolve(dbPathArg ?? DEFAULT_DB_PATH),
     excludeVideos,
     quietSuccess,
+    retryCount,
   };
 }
 
-export async function runPost(dbPath: string, excludeVideos: boolean, quietSuccess: boolean) {
+export async function runPost(dbPath: string, excludeVideos: boolean, quietSuccess: boolean, retryCount: number = POST_MAX_RETRY_COUNT) {
   const db = initDb(dbPath);
 
   const selectStmt = db.prepare(`
     SELECT id, path, hash, size
     FROM images
     WHERE status IS NULL OR status != 'uploaded'
-    ORDER BY id
+    ORDER BY CASE WHEN status = 'failed' THEN 1 ELSE 0 END, id
   `);
 
   const updateSuccessStmt = db.prepare(`
@@ -71,33 +100,62 @@ export async function runPost(dbPath: string, excludeVideos: boolean, quietSucce
 
   try {
     let count = 0;
-    for (const row of rows) {
+    const queue = [...rows];
+    const retryCounts = new Map<number, number>();
+
+    while (queue.length > 0) {
+      const row = queue.shift();
+      if (!row) {
+        continue;
+      }
+
       count += 1;
+      const total = count + queue.length;
+
       if (excludeVideos && isVideoFile(row.path)) {
         skippedVideo += 1;
-        logInfo(`Skipping video file (exclude-videos): ${row.path}  : ${count}/${rows.length}`);
-        renderProgress('post', count, rows.length);
+        logInfo(`Skipping video file (exclude-videos): ${row.path}  : ${count}/${total}`);
+        renderProgress('post', count, total);
         continue;
       }
 
       if (!fs.existsSync(row.path)) {
         const message = 'File not found';
-        logError(`Failed: ${row.path} -> ${message}  : ${count}/${rows.length}`);
+        logError(`Failed: ${row.path} -> ${message}  : ${count}/${total}`);
         updateFailStmt.run(null, message, nowIso(), row.id);
-        failed += 1;
-        renderProgress('post', count, rows.length);
+
+        const retried = retryCounts.get(row.id) ?? 0;
+        if (retried < retryCount) {
+          const nextRetry = retried + 1;
+          retryCounts.set(row.id, nextRetry);
+          queue.push(row);
+          logInfo(`Retrying later (${nextRetry}/${retryCount}): ${row.path}`);
+        } else {
+          failed += 1;
+        }
+
+        renderProgress('post', count, count + queue.length);
         continue;
       }
 
-      const result = await uploadImage(row.path, row.hash, row.size, `${count}/${rows.length}`, quietSuccess);
+      const result = await uploadImage(row.path, row.hash, row.size, `${count}/${total}`, quietSuccess);
       if (result.success) {
         updateSuccessStmt.run(result.statusCode, nowIso(), nowIso(), row.id);
         uploaded += 1;
       } else {
         updateFailStmt.run(result.statusCode, result.errorMessage ?? 'unknown error', nowIso(), row.id);
-        failed += 1;
+
+        const retried = retryCounts.get(row.id) ?? 0;
+        if (retried < retryCount) {
+          const nextRetry = retried + 1;
+          retryCounts.set(row.id, nextRetry);
+          queue.push(row);
+          logInfo(`Retrying later (${nextRetry}/${retryCount}): ${row.path}`);
+        } else {
+          failed += 1;
+        }
       }
-      renderProgress('post', count, rows.length);
+      renderProgress('post', count, count + queue.length);
     }
   } finally {
     db.close();

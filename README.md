@@ -11,6 +11,7 @@ TypeScript で実装されており、`node` で `.ts` を直接実行します�
 - `post`: DB に登録済みで未アップロードのファイルを Immich に送信
   - 成功時: `status=uploaded`、HTTP ステータス、アップロード時刻を記録
   - 失敗時: `status=failed`、エラー内容を記録
+  - 失敗した項目はキューの末尾で再試行（再試行時に失敗した場合も末尾へ再投入、既定で最大5回）
   - `uploaded` のファイルは再送しません
 
 ## 前提
@@ -55,7 +56,7 @@ yarn start update ./immich/library/upload ./immich_toys.db
 ### 2) Immich へアップロード
 
 ```bash
-yarn start post [DB_PATH] [--exclude-videos] [--quiet-success]
+yarn start post [DB_PATH] [--exclude-videos] [--quiet-success] [--retry-count N]
 ```
 
 例:
@@ -64,11 +65,13 @@ yarn start post [DB_PATH] [--exclude-videos] [--quiet-success]
 yarn start post ./immich_toys.db
 yarn start post ./immich_toys.db --exclude-videos
 yarn start post ./immich_toys.db --quiet-success
+yarn start post ./immich_toys.db --retry-count 3
 ```
 
 - `DB_PATH` 省略時は `./immich_toys.db`
 - `--exclude-videos` を付けると、`.mp4` などの動画形式をアップロード対象から除外
 - `--quiet-success` を付けると、成功時の `Uploaded: ...` ログを省略
+- `--retry-count N` を付けると、失敗項目の再試行回数を指定（既定: `5`、`0` は再試行なし）
 
 ## ビルド
 

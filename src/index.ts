@@ -7,7 +7,7 @@ import { logError } from './utils/progress.js';
 function printUsage() {
   console.error('Usage:');
   console.error('  yarn start update <TARGET_FOLDER> [DB_PATH]');
-  console.error('  yarn start post [DB_PATH] [--exclude-videos] [--quiet-success]');
+  console.error('  yarn start post [DB_PATH] [--exclude-videos] [--quiet-success] [--retry-count N]');
 }
 
 async function main() {
@@ -25,8 +25,8 @@ async function main() {
   }
 
   if (command === 'post') {
-    const { dbPath, excludeVideos, quietSuccess } = parsePostArgs(process.argv.slice(3));
-    await runPost(dbPath, excludeVideos, quietSuccess);
+    const { dbPath, excludeVideos, quietSuccess, retryCount } = parsePostArgs(process.argv.slice(3));
+    await runPost(dbPath, excludeVideos, quietSuccess, retryCount);
     return;
   }
 

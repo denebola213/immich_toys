@@ -23,4 +23,5 @@ export type PostArgs = {
   dbPath: string;
   excludeVideos: boolean;
   quietSuccess: boolean;
+  retryCount: number;
 };

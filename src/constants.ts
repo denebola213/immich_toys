@@ -8,3 +8,5 @@ export const MEDIA_EXTENSIONS = [
   '.fit', '.fits', '.fts', '.dcm', '.nii', '.nii.gz', '.tif', '.tiff',
   ...VIDEO_EXTENSIONS,
 ];
+
+export const POST_MAX_RETRY_COUNT = 5;
