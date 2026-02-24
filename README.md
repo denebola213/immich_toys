@@ -59,16 +59,20 @@ yarn start update ./immich/library/upload ./immich_toys.db
 ### 2) Immich へアップロード
 
 ```bash
-yarn start post [DB_PATH]
+yarn start post [DB_PATH] [--exclude-videos] [--quiet-success]
 ```
 
 例:
 
 ```bash
 yarn start post ./immich_toys.db
+yarn start post ./immich_toys.db --exclude-videos
+yarn start post ./immich_toys.db --quiet-success
 ```
 
 - `DB_PATH` 省略時は `./immich_toys.db`
+- `--exclude-videos` を付けると、`.mp4` などの動画形式をアップロード対象から除外
+- `--quiet-success` を付けると、成功時の `Uploaded: ...` ログを省略
 
 ### 3) 旧ログからアップロード済みを移行
 

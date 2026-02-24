@@ -12,11 +12,15 @@ const IMMICH_BASE_URL = process.env.IMMICH_BASE_URL;
 const IMMICH_API_KEY = process.env.IMMICH_API_KEY;
 const DEFAULT_DB_PATH = path.resolve('immich_toys.db');
 
-const IMAGE_EXTENSIONS = [
+const VIDEO_EXTENSIONS = [
+  '.mp4', '.mov', '.avi', '.mkv', '.webm', '.wmv', '.flv', '.m4v', '.3gp', '.mts', '.ts', '.m2ts', '.mpeg', '.mpg',
+];
+
+const MEDIA_EXTENSIONS = [
   '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.heic',
   '.cr2', '.cr3', '.crw',
   '.fit', '.fits', '.fts', '.dcm', '.nii', '.nii.gz', '.tif', '.tiff',
-  '.mp4', '.mov', '.avi', '.mkv', '.webm', '.wmv', '.flv', '.m4v', '.3gp', '.mts', '.ts', '.m2ts', '.mpeg', '.mpg',
+  ...VIDEO_EXTENSIONS,
 ];
 
 type UploadResult = {
@@ -37,10 +41,21 @@ type CompletedLogEntry = {
   statusCode: number | null;
 };
 
+type ProgressState = {
+  label: string;
+  current: number;
+  total: number;
+  elapsedText: string;
+  etaText: string;
+};
+
+let activeProgress: ProgressState | null = null;
+const progressStartTimes = new Map<string, number>();
+
 function printUsage() {
   console.error('Usage:');
   console.error('  yarn start update <TARGET_FOLDER> [DB_PATH]');
-  console.error('  yarn start post [DB_PATH]');
+  console.error('  yarn start post [DB_PATH] [--exclude-videos] [--quiet-success]');
   console.error('  yarn start import-log <LOG_PATH> [DB_PATH]');
 }
 
@@ -48,33 +63,106 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) {
+    return '--:--';
+  }
+
+  const totalSeconds = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  }
+
+  return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+}
+
+function drawProgress(progress: ProgressState) {
+  const ratio = Math.min(1, Math.max(0, progress.current / progress.total));
+  const percent = (ratio * 100).toFixed(1);
+  const width = 30;
+  const filled = Math.round(ratio * width);
+  const bar = `${'='.repeat(filled)}${'-'.repeat(Math.max(0, width - filled))}`;
+  process.stdout.write(`\r${progress.label} [${bar}] ${percent}% (${progress.current}/${progress.total}) elapsed ${progress.elapsedText} eta ${progress.etaText}`);
+}
+
+function withProgressSafeLog(write: () => void) {
+  const hasActiveProgress = process.stdout.isTTY && activeProgress !== null;
+
+  if (hasActiveProgress) {
+    process.stdout.write('\n');
+  }
+
+  write();
+
+  if (hasActiveProgress && activeProgress !== null) {
+    drawProgress(activeProgress);
+  }
+}
+
+function logInfo(message: string) {
+  withProgressSafeLog(() => {
+    process.stdout.write(`${message}\n`);
+  });
+}
+
+function logError(message: string) {
+  withProgressSafeLog(() => {
+    process.stderr.write(`${message}\n`);
+  });
+}
+
 function renderProgress(label: string, current: number, total: number) {
   if (total <= 0) {
     return;
   }
 
-  const ratio = Math.min(1, Math.max(0, current / total));
-  const percent = (ratio * 100).toFixed(1);
-
   if (process.stdout.isTTY) {
-    const width = 30;
-    const filled = Math.round(ratio * width);
-    const bar = `${'='.repeat(filled)}${'-'.repeat(Math.max(0, width - filled))}`;
-    process.stdout.write(`\r${label} [${bar}] ${percent}% (${current}/${total})`);
+    const now = Date.now();
+    const startMs = progressStartTimes.get(label) ?? now;
+    if (!progressStartTimes.has(label)) {
+      progressStartTimes.set(label, startMs);
+    }
+
+    const elapsedMs = Math.max(0, now - startMs);
+    const etaMs = current > 0
+      ? (elapsedMs / current) * Math.max(0, total - current)
+      : Number.NaN;
+
+    activeProgress = {
+      label,
+      current,
+      total,
+      elapsedText: formatDuration(elapsedMs),
+      etaText: current >= total ? '00:00' : formatDuration(etaMs),
+    };
+    drawProgress(activeProgress);
     if (current >= total) {
       process.stdout.write('\n');
+      activeProgress = null;
+      progressStartTimes.delete(label);
     }
     return;
   }
 
+  const ratio = Math.min(1, Math.max(0, current / total));
+  const percent = (ratio * 100).toFixed(1);
   if (current === 1 || current === total || current % 100 === 0) {
-    console.log(`${label}: ${current}/${total} (${percent}%)`);
+    logInfo(`${label}: ${current}/${total} (${percent}%)`);
   }
 }
 
 function isMediaFile(filePath: string): boolean {
   const lower = filePath.toLowerCase();
-  return IMAGE_EXTENSIONS.some(ext => lower.endsWith(ext));
+  return MEDIA_EXTENSIONS.some(ext => lower.endsWith(ext));
+}
+
+function isVideoFile(filePath: string): boolean {
+  const lower = filePath.toLowerCase();
+  return VIDEO_EXTENSIONS.some(ext => lower.endsWith(ext));
 }
 
 function getAllImageFiles(dir: string): string[] {
@@ -181,7 +269,7 @@ function parseCompletedEntriesFromLog(logPath: string): CompletedLogEntry[] {
   }));
 }
 
-async function uploadImage(filePath: string, hash: string, size: number, msg: string): Promise<UploadResult> {
+async function uploadImage(filePath: string, hash: string, size: number, msg: string, quietSuccess: boolean): Promise<UploadResult> {
   if (!IMMICH_BASE_URL || !IMMICH_API_KEY) {
     throw new Error('IMMICH_BASE_URL or IMMICH_API_KEY is not set in .env');
   }
@@ -207,7 +295,9 @@ async function uploadImage(filePath: string, hash: string, size: number, msg: st
       maxBodyLength: Infinity,
     });
 
-    console.log(`Uploaded: ${filePath} -> ${response.status}  : ${msg}`);
+    if (!quietSuccess) {
+      logInfo(`Uploaded: ${filePath} -> ${response.status}  : ${msg}`);
+    }
     return {
       success: true,
       statusCode: response.status,
@@ -217,7 +307,7 @@ async function uploadImage(filePath: string, hash: string, size: number, msg: st
     if (axios.isAxiosError(error)) {
       const statusCode = error.response?.status ?? null;
       const message = error.message;
-      console.error(`Failed: ${filePath} -> ${message}  : ${msg}`);
+      logError(`Failed: ${filePath} -> ${message}  : ${msg}`);
       return {
         success: false,
         statusCode,
@@ -226,7 +316,7 @@ async function uploadImage(filePath: string, hash: string, size: number, msg: st
     }
 
     const message = error instanceof Error ? error.message : String(error);
-    console.error(`Failed: ${filePath} -> ${message}  : ${msg}`);
+    logError(`Failed: ${filePath} -> ${message}  : ${msg}`);
     return {
       success: false,
       statusCode: null,
@@ -250,7 +340,7 @@ async function runUpdate(targetFolder: string, dbPath: string) {
   let skipped = 0;
   const files = getAllImageFiles(targetFolder);
   const xxhashApi = await xxhash();
-  console.log(`Found ${files.length} image(s).`);
+  logInfo(`Found ${files.length} image(s).`);
 
   try {
     let index = 0;
@@ -270,10 +360,49 @@ async function runUpdate(targetFolder: string, dbPath: string) {
     db.close();
   }
 
-  console.log(`Update completed. inserted=${inserted}, skipped=${skipped}, db=${dbPath}`);
+  logInfo(`Update completed. inserted=${inserted}, skipped=${skipped}, db=${dbPath}`);
 }
 
-async function runPost(dbPath: string) {
+type PostArgs = {
+  dbPath: string;
+  excludeVideos: boolean;
+  quietSuccess: boolean;
+};
+
+function parsePostArgs(args: string[]): PostArgs {
+  let dbPathArg: string | null = null;
+  let excludeVideos = false;
+  let quietSuccess = false;
+
+  for (const arg of args) {
+    if (arg === '--exclude-videos') {
+      excludeVideos = true;
+      continue;
+    }
+
+    if (arg === '--quiet-success') {
+      quietSuccess = true;
+      continue;
+    }
+
+    if (arg.startsWith('-')) {
+      throw new Error(`Unknown option for post: ${arg}`);
+    }
+
+    if (dbPathArg !== null) {
+      throw new Error('Too many arguments for post command.');
+    }
+    dbPathArg = arg;
+  }
+
+  return {
+    dbPath: path.resolve(dbPathArg ?? DEFAULT_DB_PATH),
+    excludeVideos,
+    quietSuccess,
+  };
+}
+
+async function runPost(dbPath: string, excludeVideos: boolean, quietSuccess: boolean) {
   const db = initDb(dbPath);
 
   const selectStmt = db.prepare(`
@@ -296,31 +425,46 @@ async function runPost(dbPath: string) {
   `);
 
   const rows = selectStmt.all() as ImageRow[];
-  console.log(`Found ${rows.length} image(s) to upload.`);
+  logInfo(`Found ${rows.length} image(s) to upload.`);
+  let uploaded = 0;
+  let failed = 0;
+  let skippedVideo = 0;
 
   try {
     let count = 0;
     for (const row of rows) {
       count += 1;
-      if (!fs.existsSync(row.path)) {
-        const message = 'File not found';
-        console.error(`Failed: ${row.path} -> ${message}  : ${count}/${rows.length}`);
-        updateFailStmt.run(null, message, nowIso(), row.id);
+      if (excludeVideos && isVideoFile(row.path)) {
+        skippedVideo += 1;
+        logInfo(`Skipping video file (exclude-videos): ${row.path}  : ${count}/${rows.length}`);
         renderProgress('post', count, rows.length);
         continue;
       }
 
-      const result = await uploadImage(row.path, row.hash, row.size, `${count}/${rows.length}`);
+      if (!fs.existsSync(row.path)) {
+        const message = 'File not found';
+        logError(`Failed: ${row.path} -> ${message}  : ${count}/${rows.length}`);
+        updateFailStmt.run(null, message, nowIso(), row.id);
+        failed += 1;
+        renderProgress('post', count, rows.length);
+        continue;
+      }
+
+      const result = await uploadImage(row.path, row.hash, row.size, `${count}/${rows.length}`, quietSuccess);
       if (result.success) {
         updateSuccessStmt.run(result.statusCode, nowIso(), nowIso(), row.id);
+        uploaded += 1;
       } else {
         updateFailStmt.run(result.statusCode, result.errorMessage ?? 'unknown error', nowIso(), row.id);
+        failed += 1;
       }
       renderProgress('post', count, rows.length);
     }
   } finally {
     db.close();
   }
+
+  logInfo(`Post completed. uploaded=${uploaded}, failed=${failed}, skipped_video=${skippedVideo}, db=${dbPath}`);
 }
 
 async function runImportLog(logPath: string, dbPath: string) {
@@ -359,9 +503,9 @@ async function runImportLog(logPath: string, dbPath: string) {
       if (!fs.existsSync(entry.path)) {
         missing += 1;
         if (missing <= maxMissingLog) {
-          console.error(`Skip import (file not found): ${entry.path}`);
+          logError(`Skip import (file not found): ${entry.path}`);
         } else if (missing === maxMissingLog + 1) {
-          console.error(`Skip import logs are suppressed after ${maxMissingLog} missing files.`);
+          logError(`Skip import logs are suppressed after ${maxMissingLog} missing files.`);
         }
         renderProgress('import-log', processed, entries.length);
         continue;
@@ -380,7 +524,7 @@ async function runImportLog(logPath: string, dbPath: string) {
     db.close();
   }
 
-  console.log(`Import-log completed. parsed=${entries.length}, marked=${marked}, inserted=${inserted}, missing=${missing}, db=${dbPath}`);
+  logInfo(`Import-log completed. parsed=${entries.length}, marked=${marked}, inserted=${inserted}, missing=${missing}, db=${dbPath}`);
 }
 
 async function main() {
@@ -398,8 +542,8 @@ async function main() {
   }
 
   if (command === 'post') {
-    const dbPath = path.resolve(process.argv[3] ?? DEFAULT_DB_PATH);
-    await runPost(dbPath);
+    const { dbPath, excludeVideos, quietSuccess } = parsePostArgs(process.argv.slice(3));
+    await runPost(dbPath, excludeVideos, quietSuccess);
     return;
   }
 
@@ -420,6 +564,6 @@ async function main() {
 
 main().catch(error => {
   const message = error instanceof Error ? error.message : String(error);
-  console.error(message);
+  logError(message);
   process.exit(1);
 });
