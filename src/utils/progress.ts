@@ -43,18 +43,35 @@ function withProgressSafeLog(write: () => void) {
   }
 }
 
+/**
+ * 進捗表示を崩さずに情報メッセージを出力します。
+ *
+ * @param message stdout に出力するメッセージ。
+ */
 export function logInfo(message: string) {
   withProgressSafeLog(() => {
     process.stdout.write(`${message}\n`);
   });
 }
 
+/**
+ * 進捗表示を崩さずにエラーメッセージを出力します。
+ *
+ * @param message stderr に出力するメッセージ。
+ */
 export function logError(message: string) {
   withProgressSafeLog(() => {
     process.stderr.write(`${message}\n`);
   });
 }
 
+/**
+ * TTY では進捗バーを更新し、非 TTY では定期的にテキスト進捗を出力します。
+ *
+ * @param label 進捗ラベル。
+ * @param current 現在の処理済み件数。
+ * @param total 全体件数。
+ */
 export function renderProgress(label: string, current: number, total: number) {
   if (total <= 0) {
     return;

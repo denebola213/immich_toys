@@ -9,6 +9,12 @@ import { uploadImage } from '../uploader.js';
 import { logError, logInfo, renderProgress } from '../utils/progress.js';
 import { nowIso } from '../utils/time.js';
 
+/**
+ * post コマンド用の CLI 引数をパースします。
+ *
+ * @param args コマンド名以降の生の CLI 引数。
+ * @returns 正規化した post コマンドオプション。
+ */
 export function parsePostArgs(args: string[]): PostArgs {
   let dbPathArg: string | null = null;
   let excludeVideos = false;
@@ -70,6 +76,14 @@ export function parsePostArgs(args: string[]): PostArgs {
   };
 }
 
+/**
+ * ローカル DB の未送信メディア行を Immich へアップロードします。
+ *
+ * @param dbPath SQLite データベースファイルのパス。
+ * @param excludeVideos true の場合は動画をスキップします。
+ * @param quietSuccess true の場合は成功ログを抑制します。
+ * @param retryCount アップロード失敗時の最大リトライ回数。
+ */
 export async function runPost(dbPath: string, excludeVideos: boolean, quietSuccess: boolean, retryCount: number = POST_MAX_RETRY_COUNT) {
   const db = initDb(dbPath);
 

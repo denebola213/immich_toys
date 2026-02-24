@@ -6,6 +6,16 @@ import { IMMICH_API_KEY, IMMICH_BASE_URL } from './config.js';
 import { UploadResult } from './types.js';
 import { logError, logInfo } from './utils/progress.js';
 
+/**
+ * 単一のメディアファイルを Immich にアップロードします。
+ *
+ * @param filePath メディアファイルのパス。
+ * @param hash 安定した device asset id を作るためのコンテンツハッシュ。
+ * @param size ファイルサイズ（バイト）。
+ * @param msg 進捗表示用メッセージ。
+ * @param quietSuccess true の場合は成功ログを抑制します。
+ * @returns ステータスコードとエラー詳細を含むアップロード結果。
+ */
 export async function uploadImage(filePath: string, hash: string, size: number, msg: string, quietSuccess: boolean): Promise<UploadResult> {
   if (!IMMICH_BASE_URL || !IMMICH_API_KEY) {
     throw new Error('IMMICH_BASE_URL or IMMICH_API_KEY is not set in .env');

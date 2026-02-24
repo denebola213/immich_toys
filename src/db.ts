@@ -1,5 +1,11 @@
 import Database from 'better-sqlite3';
 
+/**
+ * SQLite データベースを初期化し、必要なテーブル・インデックスを作成します。
+ *
+ * @param dbPath SQLite データベースファイルのパス。
+ * @returns オープン済みの better-sqlite3 データベースインスタンス。
+ */
 export function initDb(dbPath: string): Database.Database {
   const db = new Database(dbPath);
   db.exec(`

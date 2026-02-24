@@ -6,6 +6,12 @@ import { getAllImageFiles } from '../media.js';
 import { logInfo, renderProgress } from '../utils/progress.js';
 import { nowIso } from '../utils/time.js';
 
+/**
+ * フォルダ内のメディアを走査してハッシュ化し、ローカル DB に pending 行として登録します。
+ *
+ * @param targetFolder 再帰的に走査する対象フォルダ。
+ * @param dbPath SQLite データベースファイルのパス。
+ */
 export async function runUpdate(targetFolder: string, dbPath: string) {
   if (!fs.existsSync(targetFolder) || !fs.statSync(targetFolder).isDirectory()) {
     throw new Error(`Target folder is not found or not directory: ${targetFolder}`);
