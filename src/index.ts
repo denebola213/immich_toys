@@ -1,5 +1,4 @@
 import path from 'path';
-import { runImportLog } from './commands/import-log.js';
 import { parsePostArgs, runPost } from './commands/post.js';
 import { runUpdate } from './commands/update.js';
 import { DEFAULT_DB_PATH } from './config.js';
@@ -9,7 +8,6 @@ function printUsage() {
   console.error('Usage:');
   console.error('  yarn start update <TARGET_FOLDER> [DB_PATH]');
   console.error('  yarn start post [DB_PATH] [--exclude-videos] [--quiet-success]');
-  console.error('  yarn start import-log <LOG_PATH> [DB_PATH]');
 }
 
 async function main() {
@@ -29,17 +27,6 @@ async function main() {
   if (command === 'post') {
     const { dbPath, excludeVideos, quietSuccess } = parsePostArgs(process.argv.slice(3));
     await runPost(dbPath, excludeVideos, quietSuccess);
-    return;
-  }
-
-  if (command === 'import-log') {
-    const logPath = process.argv[3];
-    const dbPath = path.resolve(process.argv[4] ?? DEFAULT_DB_PATH);
-    if (!logPath) {
-      printUsage();
-      process.exit(1);
-    }
-    await runImportLog(path.resolve(logPath), dbPath);
     return;
   }
 

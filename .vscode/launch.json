@@ -35,24 +35,6 @@
       "skipFiles": [
         "<node_internals>/**"
       ]
-    },
-    {
-      "name": "immich_toys: import-log",
-      "type": "node",
-      "request": "launch",
-      "runtimeExecutable": "node",
-      "program": "${workspaceFolder}/src/index.ts",
-      "args": [
-        "import-log",
-        "${input:logPath}",
-        "${input:dbPath}"
-      ],
-      "cwd": "${workspaceFolder}",
-      "envFile": "${workspaceFolder}/.env",
-      "console": "integratedTerminal",
-      "skipFiles": [
-        "<node_internals>/**"
-      ]
     }
   ],
   "inputs": [
@@ -67,12 +49,6 @@
       "type": "promptString",
       "description": "SQLite DBパス",
       "default": "${workspaceFolder}/immich_toys.db"
-    },
-    {
-      "id": "logPath",
-      "type": "promptString",
-      "description": "移行元ログファイルパス",
-      "default": "${workspaceFolder}/nohup.out"
     }
   ]
 }

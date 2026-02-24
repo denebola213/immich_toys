@@ -11,11 +11,6 @@ export type ImageRow = {
   size: number;
 };
 
-export type CompletedLogEntry = {
-  path: string;
-  statusCode: number | null;
-};
-
 export type ProgressState = {
   label: string;
   current: number;
