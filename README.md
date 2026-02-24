@@ -99,3 +99,41 @@ yarn build
 - 実行エントリ: [src/index.ts](src/index.ts)
 - TypeScript 設定: [tsconfig.json](tsconfig.json)
 - スクリプト定義: [package.json](package.json)
+
+## 内部モジュール構成
+
+- エントリポイント
+  - [src/index.ts](src/index.ts): CLI引数の受け取りとコマンド振り分け
+- コマンド本体
+  - [src/commands/update.ts](src/commands/update.ts): フォルダ走査・ハッシュ計算・DB登録
+  - [src/commands/post.ts](src/commands/post.ts): 未アップロードの送信処理
+  - [src/commands/import-log.ts](src/commands/import-log.ts): 旧ログの取り込み
+- 共通処理
+  - [src/db.ts](src/db.ts): SQLite初期化
+  - [src/media.ts](src/media.ts): 拡張子判定・ファイル再帰収集
+  - [src/hash.ts](src/hash.ts): xxHash64計算
+  - [src/uploader.ts](src/uploader.ts): Immich APIアップロード
+  - [src/log-parser.ts](src/log-parser.ts): 旧ログ解析
+  - [src/utils/progress.ts](src/utils/progress.ts): 進捗表示・ログ出力
+  - [src/utils/time.ts](src/utils/time.ts): 時刻ユーティリティ
+  - [src/config.ts](src/config.ts): 環境変数と既定値
+  - [src/constants.ts](src/constants.ts): 拡張子定義
+  - [src/types.ts](src/types.ts): 共有型定義
+
+### モジュール依存図（Mermaid）
+
+```mermaid
+flowchart TD
+  IDX[src/index.ts]
+  CMDU[src/commands/update.ts]
+  CMDP[src/commands/post.ts]
+  CMDI[src/commands/import-log.ts]
+  COMMON[共通モジュール群]
+
+  IDX --> CMDU
+  IDX --> CMDP
+  IDX --> CMDI
+  CMDU --> COMMON
+  CMDP --> COMMON
+  CMDI --> COMMON
+```
